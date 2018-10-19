@@ -19,36 +19,72 @@ library(tidyverse)
 "\Line Direction: Retrace"
 "\Plane fit: 0 0 0 5"
 "\@2:Z scale: 24150.5 nm"
-"\*File list end"
 
-afm_text <- read_lines("500nm_1.txt")
-afm_header <- afm_text[str_detect(afm_text, "\\\\")]
-afm_data <- afm_text[((2*length(afm_header))+1):length(afm_text)]
-
-extract_numeric_parameter <- function(parameter){
+extract_numeric_parameter <- function(header, parameter){
   parameter_regex <- paste0("\\\\", parameter, ":")
-  parameter_text <- afm_header[str_detect(afm_header, parameter_regex)][1]
+  parameter_text <- header[str_detect(header, parameter_regex)][1]
   parameter_value <- readr::parse_number(parameter_text)
   return(parameter_value)
 }
 
-scan_size <- extract_numeric_parameter("Scan Size")
-samps_line <- extract_numeric_parameter("Samps/line")
-afm_lines <- extract_numeric_parameter("Lines")
+extract_scan_points <- function(data){
+  afm_df <- data %>%
+    str_squish() %>%
+    as.tibble() %>%
+    slice(-1) %>%
+    tidyr::separate(., col = value, 
+                    into = c("Height_Sensor(nm)", "Peak_Force_Error(nN)", "DMTModulus(MPa)", "LogDMTModulus(log(Pa))", "Adhesion(nN)", "Deformation(nm)", "Dissipation(eV)", "Height(nm)"),
+                    sep = " ") %>%
+    mutate_all(funs(as.numeric(.)))
+}
 
-afm_df <- afm_data %>%
-  str_squish() %>%
-  as.tibble() %>%
-  slice(-1) %>%
-  tidyr::separate(., col = value, 
-                  into = c("Height_Sensor(nm)", "Peak_Force_Error(nN)", "DMTModulus(MPa)", "LogDMTModulus(log(Pa))", "Adhesion(nN)", "Deformation(nm)", "Dissipation(eV)", "Height(nm)"),
-                  sep = " ")
+afm_matrix <- function(data, samps_line, afm_lines, channel = ""){
+  data %>%
+    pull(channel) %>%
+    matrix(., ncol = samps_line, nrow = afm_lines, byrow = TRUE)
+}
 
-#height_matrix <- matrix(as.numeric(afm_df$`Height_Sensor(nm)`), ncol = 512, nrow = 512, byrow = T)
-#peakForce_matrix <- matrix(as.numeric(afm_df$`Peak_Force_Error(nN)`), ncol = 512, nrow = 512, byrow = T)
-
-afm_experiment <- 
+afm_scan <- function(scan_points, height_matrix, scan_size, samps_per_line, afm_lines, ...){
+  arguments <- list(...)
+  print(arguments)
+  lapply(arguments, function(x){
+    if(class(x)!="martix"){
+      opt_params <- list(x)
+    }
+  })
   
-afm_matrix <- function(data, channel){
+  data <- list(
+    params = list(scan_size = scanSize, samps_per_line = sampsPerLine, afm_lines = afmLines),
+    scan_data = scan_points,
+    height_map = height_matrix
+  )
   
+  class(data) <- "afm_scan"
+  return(data)
+} 
+
+afm_read_bruker <- function(file){
+  afm_text <- read_lines(file)
+  afm_header <- afm_text[str_detect(afm_text, "\\\\")]
+  afm_data <- afm_text[((2*length(afm_header))+1):length(afm_text)]
+  
+  scanSize <- extract_numeric_parameter(afm_header, "Scan Size")
+  sampsPerLine <- extract_numeric_parameter(afm_header, "Samps/line")
+  afmLines <- extract_numeric_parameter(afm_header, "Lines")
+  
+  scan_points <- extract_scan_points(afm_data)
+  height_matrix <- afm_matrix(scan_points, sampsPerLine, afmLines, channel = "Height_Sensor(nm)")
+  peakforce_matrix <- afm_matrix(scan_points, sampsPerLine, afmLines, channel = "Peak_Force_Error(nN)")
+  modulus_matrix <- afm_matrix(scan_points, sampsPerLine, afmLines, channel = "DMTModulus(MPa)")
+  
+  scan_object <- afm_scan()
+}
+
+afm_read_bruker("500nm_1.txt")
+
+afm_read_bruker <- function(file){
+  afm_text <- read_lines(file)
+  afm_header <- afm_text[str_detect(afm_text, "\\\\")]
+  afm_data <- afm_text[((2*length(afm_header))+1):length(afm_text)]
+  return(afm_header)
 }

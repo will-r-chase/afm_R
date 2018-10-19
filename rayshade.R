@@ -8,9 +8,9 @@ peakForce_matrix %>%
   sphere_shade(texture = "desert") %>%
   plot_map()
 
-heatmap(peakForce_matrix, Rowv=NA, Colv=NA, col = grey.colors(256))
+heatmap(height_matrix, Rowv=NA, Colv=NA, col = grey.colors(256))
 
-levelplot(peakForce_matrix, col.regions = grey.colors(256))
+levelplot(height_matrix, col.regions = grey.colors(256))
 
 rayshader::plot_3d
 AFM::displayIn3D
