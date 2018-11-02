@@ -23,14 +23,14 @@ library(tidyverse)
 extract_parameter <- function(header, parameter){
   parameter_regex <- paste0("\\\\", parameter, ":")
   parameter_text <- header[str_detect(header, parameter_regex)][1]
+  if (is.na(parameter_text)) {
+    warning(paste(parameter, "was not found in the header, returning", parameter, "directly"))
+    return(parameter)
+  } else {
   tryCatch({readr::parse_number(parameter_text)}, 
            warning = function(w){str_extract(parameter_text, pattern = '(?<=: )(.*)(?=")')})
+  }
 }
-
-parameter_regex <- paste0("\\\\", "Line Direction", ":")
-parameter_text <- afm_header[str_detect(afm_header, parameter_regex)][1]
-str_extract(parameter_text, pattern = '(?<=: )(.*)(?=")')
-
 
 extract_scan_points <- function(data){
   afm_df <- data %>%
@@ -49,15 +49,15 @@ afm_matrix <- function(data, samps_line, afm_lines, channel = ""){
     matrix(., ncol = samps_line, nrow = afm_lines, byrow = TRUE)
 }
 
-afm_scan <- function(scan_points, scanSize, sampsPerLine, afmLines, ...){
-  arguments <- list(...)
-  maps <- Filter(is.matrix, arguments)
-  opt_params <- arguments[!(names(arguments)%in%names(maps))]
+afm_scan <- function(scan_points, scanSize, sampsPerLine, afmLines, maps = list(), optional_params = list()){
+  #arguments <- list(...)
+  #maps <- Filter(is.matrix, arguments)
+  #opt_params <- arguments[!(names(arguments)%in%names(maps))]
   
   data <- list(
     params = list(scan_size = scanSize, samps_per_line = sampsPerLine, afm_lines = afmLines),
     scan_data = scan_points,
-    opt_params = opt_params,
+    opt_params = optional_params,
     maps = maps
   )
   
@@ -65,51 +65,49 @@ afm_scan <- function(scan_points, scanSize, sampsPerLine, afmLines, ...){
   return(data)
 } 
 
-afm_read_bruker <- function(file, maps = "all", opt_params = list()){
+afm_read_bruker <- function(file, maps = "all", opt_params = list(), scan_size = "Scan Size", samps_per_line = "Samps/line", afm_lines = "Lines"){
   afm_text <- read_lines(file)
   afm_header <- afm_text[str_detect(afm_text, "\\\\")]
   afm_data <- afm_text[((2*length(afm_header))+1):length(afm_text)]
   
-  scanSize <- extract_parameter(afm_header, "Scan Size")
-  sampsPerLine <- extract_parameter(afm_header, "Samps/line")
-  afmLines <- extract_parameter(afm_header, "Lines")
+  scanSize <- extract_parameter(afm_header, scan_size)
+  sampsPerLine <- extract_parameter(afm_header, samps_per_line)
+  afmLines <- extract_parameter(afm_header, afm_lines)
   scan_points <- extract_scan_points(afm_data)
   
   if(maps == "all"){
     all_channels <- colnames(scan_points)
     map_names <- paste(str_extract(all_channels, pattern = ".+?(?=\\()"), "matrix", sep = "_")
-    all_maps <- map(.x = all_channels, ~afm_matrix(scan_points1, sampsPerLine1, afmLines1, channel = .x))
-    names(all_maps) <- map_names
+    afm_maps <- map(.x = all_channels, ~afm_matrix(scan_points1, sampsPerLine1, afmLines1, channel = .x))
+    names(afm_maps) <- map_names
   } else{
     all_channels <- colnames(scan_points)
     select_channels <- maps[maps%in%all_channels]
     map_names <- paste(str_extract(select_channels, pattern = ".+?(?=\\()"), "matrix", sep = "_")
-    select_maps <- map(.x = select_channels, ~afm_matrix(scan_points1, sampsPerLine1, afmLines1, channel = .x))
-    names(select_maps) <- map_names
+    afm_maps <- map(.x = select_channels, ~afm_matrix(scan_points1, sampsPerLine1, afmLines1, channel = .x))
+    names(afm_maps) <- map_names
   }
   
-  ##here deal with opt_params
+  optional_params <- purrr::map(opt_params, ~extract_parameter(afm_header, .x))
   
-  scan_object <- afm_scan()
+  afm_scan(scan_points, scanSize, sampsPerLine, afmLines, maps = afm_maps, optional_params)
 }
 
-afm_read_bruker("500nm_1.txt")
-
-
+read_test<-afm_read_bruker("500nm_1.txt", c("Height_Sensor(nm)", "Peak_Force_Error(nN)"), list(scan_rate = "Scan Rate", cap_dir = "Capture direction", num = 4, cell = "cell1"))
 
 #### test
 afm_text <- read_lines("500nm_1.txt")
 afm_header <- afm_text[str_detect(afm_text, "\\\\")]
 afm_data <- afm_text[((2*length(afm_header))+1):length(afm_text)]
 
-scanSize1 <- extract_numeric_parameter(afm_header, "Scan Size")
-sampsPerLine1 <- extract_numeric_parameter(afm_header, "Samps/line")
-afmLines1 <- extract_numeric_parameter(afm_header, "Lines")
+scanSize1 <- extract_parameter(afm_header, "Scan Size")
+sampsPerLine1 <- extract_parameter(afm_header, "Samps/line")
+afmLines1 <- extract_parameter(afm_header, "Lines")
 
 scan_points1 <- extract_scan_points(afm_data)
-height_matrix <- afm_matrix(scan_points, sampsPerLine1, afmLines1, channel = "Height_Sensor(nm)")
-peakforce_matrix <- afm_matrix(scan_points, sampsPerLine1, afmLines1, channel = "Peak_Force_Error(nN)")
-modulus_matrix <- afm_matrix(scan_points, sampsPerLine1, afmLines1, channel = "DMTModulus(MPa)")
+height_matrix <- afm_matrix(scan_points1, sampsPerLine1, afmLines1, channel = "Height_Sensor(nm)")
+peakforce_matrix <- afm_matrix(scan_points1, sampsPerLine1, afmLines1, channel = "Peak_Force_Error(nN)")
+modulus_matrix <- afm_matrix(scan_points1, sampsPerLine1, afmLines1, channel = "DMTModulus(MPa)")
 
 test_scan <- afm_scan(scan_points1, scanSize1, sampsPerLine1, afmLines1)
 
@@ -119,7 +117,7 @@ test_scan2 <- afm_scan(scan_points1, scanSize1, sampsPerLine1, afmLines1, scan_r
 
 arguments <- list(scan_rate = scanRate, height = height_matrix)
 print(arguments)
-opt_params <- list(arguments[is.matrix==TRUE)])
+
 maps <- list()
 for(i in 1:length(arguments)){
   if(class(arguments[[i]])!="matrix"){
