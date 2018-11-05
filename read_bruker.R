@@ -78,13 +78,13 @@ afm_read_bruker <- function(file, maps = "all", opt_params = list(), scan_size =
   if(maps == "all"){
     all_channels <- colnames(scan_points)
     map_names <- paste(str_extract(all_channels, pattern = ".+?(?=\\()"), "matrix", sep = "_")
-    afm_maps <- map(.x = all_channels, ~afm_matrix(scan_points1, sampsPerLine1, afmLines1, channel = .x))
+    afm_maps <- map(.x = all_channels, ~afm_matrix(scan_points, sampsPerLine, afmLines, channel = .x))
     names(afm_maps) <- map_names
   } else{
     all_channels <- colnames(scan_points)
     select_channels <- maps[maps%in%all_channels]
     map_names <- paste(str_extract(select_channels, pattern = ".+?(?=\\()"), "matrix", sep = "_")
-    afm_maps <- map(.x = select_channels, ~afm_matrix(scan_points1, sampsPerLine1, afmLines1, channel = .x))
+    afm_maps <- map(.x = select_channels, ~afm_matrix(scan_points, sampsPerLine, afmLines, channel = .x))
     names(afm_maps) <- map_names
   }
   
