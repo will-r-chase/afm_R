@@ -1,14 +1,14 @@
-library(AFM)
 library(tidyverse)
 library(rayshader)
 library(rgl)
 library(lattice)
 
+##rayshader stuff
 peakForce_matrix %>%
   sphere_shade(texture = "desert") %>%
   plot_map()
 
-heatmap(height_matrix, Rowv=NA, Colv=NA, col = grey.colors(256))
+heatmap(height_scaled, Rowv=NA, Colv=NA, col = grey.colors(256))
 
 levelplot(height_matrix, col.regions = grey.colors(256))
 

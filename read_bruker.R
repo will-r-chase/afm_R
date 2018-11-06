@@ -1,25 +1,31 @@
 library(tidyverse)
 
-"\Scan Size: 500 nm"
-"\Samps/line: 512"
-"\Lines: 512"
-"\QNM scan line shift: 8.192"
-"\Scan Rate: 0.497119"
-"\Capture direction: Down"
-"\Lift Height: 71.0466"
-"\Sync Distance: 146.1"
-"\Sync Distance New: 146.1"
-"\Sync Distance QNM: 145.222"
-"\Peak Force Engage Amplitude: 100"
-"\Peak Force Engage Setpoint: 0.15"
-"\Tip Radius: 1"
-"\Cantilever Angle: 12"
-"\Sample Poisson's Ratio: 0.3"
-"\Tip Half Angle: 0.261799"
-"\Line Direction: Retrace"
-"\Plane fit: 0 0 0 5"
-"\@2:Z scale: 24150.5 nm"
+#####example of header parameters#####
+# "\Scan Size: 500 nm"
+# "\Samps/line: 512"
+# "\Lines: 512"
+# "\QNM scan line shift: 8.192"
+# "\Scan Rate: 0.497119"
+# "\Capture direction: Down"
+# "\Lift Height: 71.0466"
+# "\Sync Distance: 146.1"
+# "\Sync Distance New: 146.1"
+# "\Sync Distance QNM: 145.222"
+# "\Peak Force Engage Amplitude: 100"
+# "\Peak Force Engage Setpoint: 0.15"
+# "\Tip Radius: 1"
+# "\Cantilever Angle: 12"
+# "\Sample Poisson's Ratio: 0.3"
+# "\Tip Half Angle: 0.261799"
+# "\Line Direction: Retrace"
+# "\Plane fit: 0 0 0 5"
+# "\@2:Z scale: 24150.5 nm"
 
+#extract parameters from the header
+#parameter must be character vector that exactly matches the description in the header ie. "Tip Radius"
+#if no match is found in the header, the parameter value is returned directly
+#this allows users to store values that may not be in the header but are associated with the experiment
+#such as "cell number" "treatment" etc.
 extract_parameter <- function(header, parameter){
   parameter_regex <- paste0("\\\\", parameter, ":")
   parameter_text <- header[str_detect(header, parameter_regex)][1]
@@ -32,6 +38,9 @@ extract_parameter <- function(header, parameter){
   }
 }
 
+#reads the scan data into a dataframe
+#add later: automatic naming of columns
+#add later: safety to check that all lines are complete
 extract_scan_points <- function(data){
   afm_df <- data %>%
     str_squish() %>%
@@ -43,12 +52,17 @@ extract_scan_points <- function(data){
     mutate_all(funs(as.numeric(.)))
 }
 
+#formats a data channel as a matrix for visualization
+#provide channel argument as character vector that matches the colname in scan_points exactly
 afm_matrix <- function(data, samps_line, afm_lines, channel = ""){
   data %>%
     pull(channel) %>%
     matrix(., ncol = samps_line, nrow = afm_lines, byrow = TRUE)
 }
 
+#takes required inputs (scan size, scan points, samps per line, lines)
+#also takes optional params and maps (image matrices)
+#formats as afm_scan object
 afm_scan <- function(scan_points, scanSize, sampsPerLine, afmLines, maps = list(), optional_params = list()){
   #arguments <- list(...)
   #maps <- Filter(is.matrix, arguments)
@@ -65,6 +79,7 @@ afm_scan <- function(scan_points, scanSize, sampsPerLine, afmLines, maps = list(
   return(data)
 } 
 
+#reads a bruker text file that has a header and scan data from any number of channels
 afm_read_bruker <- function(file, maps = "all", opt_params = list(), scan_size = "Scan Size", samps_per_line = "Samps/line", afm_lines = "Lines"){
   afm_text <- read_lines(file)
   afm_header <- afm_text[str_detect(afm_text, "\\\\")]
@@ -94,6 +109,7 @@ afm_read_bruker <- function(file, maps = "all", opt_params = list(), scan_size =
 }
 
 read_test<-afm_read_bruker("500nm_1.txt", c("Height_Sensor(nm)", "Peak_Force_Error(nN)"), list(scan_rate = "Scan Rate", cap_dir = "Capture direction", num = 4, cell = "cell1"))
+two_um_scan <- afm_read_bruker("2um_1.txt")
 
 #### test
 afm_text <- read_lines("500nm_1.txt")
