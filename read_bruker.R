@@ -26,7 +26,7 @@ library(tidyverse)
 #if no match is found in the header, the parameter value is returned directly
 #this allows users to store values that may not be in the header but are associated with the experiment
 #such as "cell number" "treatment" etc.
-extract_parameter <- function(header, parameter){
+afm_extract_parameter <- function(header = NULL, parameter = NULL){
   parameter_regex <- paste0("\\\\", parameter, ":")
   parameter_text <- header[str_detect(header, parameter_regex)][1]
   if (is.na(parameter_text)) {
@@ -41,20 +41,33 @@ extract_parameter <- function(header, parameter){
 #reads the scan data into a dataframe
 #add later: automatic naming of columns
 #add later: safety to check that all lines are complete
-extract_scan_points <- function(data){
+afm_extract_scan_points <- function(data){
+  assert_that(is.character(data))
+  
   afm_df <- data %>%
     str_squish() %>%
-    as.tibble() %>%
+    as.tibble() 
+  
+  names <- unlist(strsplit(x = as.character(afm_df[1, ]), split = " "))
+  assert_that(is.character(names))
+  
+  afm_df %>%
     slice(-1) %>%
-    tidyr::separate(., col = value, 
-                    into = c("Height_Sensor(nm)", "Peak_Force_Error(nN)", "DMTModulus(MPa)", "LogDMTModulus(log(Pa))", "Adhesion(nN)", "Deformation(nm)", "Dissipation(eV)", "Height(nm)"),
-                    sep = " ") %>%
-    mutate_all(funs(as.numeric(.)))
+    {
+      tryCatch(
+        {tidyr::separate(., col = value, into = names, sep = " ", convert = TRUE)},
+        warning = function(w) {stop("The rows of your scan data had an unequal 
+                                    number of columns. Check that all lines of 
+                                    your scan data are complete.")}
+      )    
+    }
 }
 
 #formats a data channel as a matrix for visualization
 #provide channel argument as character vector that matches the colname in scan_points exactly
-afm_matrix <- function(data, samps_line, afm_lines, channel = ""){
+afm_matrix <- function(data, samps_line, afm_lines, channel = NULL){
+  assert_that(!is.null(channel))
+  
   data %>%
     pull(channel) %>%
     matrix(., ncol = samps_line, nrow = afm_lines, byrow = TRUE)
@@ -63,10 +76,13 @@ afm_matrix <- function(data, samps_line, afm_lines, channel = ""){
 #takes required inputs (scan size, scan points, samps per line, lines)
 #also takes optional params and maps (image matrices)
 #formats as afm_scan object
-afm_scan <- function(scan_points, scanSize, sampsPerLine, afmLines, maps = list(), optional_params = list()){
-  #arguments <- list(...)
-  #maps <- Filter(is.matrix, arguments)
-  #opt_params <- arguments[!(names(arguments)%in%names(maps))]
+afm_scan <- function(scan_points = NULL, scanSize = NULL, sampsPerLine = NULL, afmLines = NULL, maps = list(), optional_params = list()){
+  assert_that(!is.null(scan_points), !is.null(scanSize), !is.null(sampsPerLine), !is.null(afmLines))
+  assert_that(is.numeric(scanSize), is.numeric(sampsPerLine), is.numeric(afmLines))
+  
+  if(is.tibble(scan_points) == FALSE & is.data.frame(scan_points) == FALSE) {
+    stop("scan_points must be a tibble or dataframe")
+  }
   
   data <- list(
     params = list(scan_size = scanSize, samps_per_line = sampsPerLine, afm_lines = afmLines),
@@ -79,16 +95,35 @@ afm_scan <- function(scan_points, scanSize, sampsPerLine, afmLines, maps = list(
   return(data)
 } 
 
+afm_scan(scan_points = scan_points1, scanSize = scanSize1, sampsPerLine = sampsPerLine1, afmLines = afmLines1)
+
 #reads a bruker text file that has a header and scan data from any number of channels
-afm_read_bruker <- function(file, maps = "all", opt_params = list(), scan_size = "Scan Size", samps_per_line = "Samps/line", afm_lines = "Lines"){
+afm_read_bruker <- function(file = NULL, maps = "all", opt_params = list(), scan_size = "Scan Size", samps_per_line = "Samps/line", afm_lines = "Lines"){
+  assert_that(!is.null(file))
+  
   afm_text <- read_lines(file)
   afm_header <- afm_text[str_detect(afm_text, "\\\\")]
   afm_data <- afm_text[((2*length(afm_header))+1):length(afm_text)]
   
-  scanSize <- extract_parameter(afm_header, scan_size)
-  sampsPerLine <- extract_parameter(afm_header, samps_per_line)
-  afmLines <- extract_parameter(afm_header, afm_lines)
-  scan_points <- extract_scan_points(afm_data)
+  assert_that(length(afm_header) > 0, msg = "No header found, your file must have a header")
+  assert_that(length(afm_data) > 0, msg = "No scan data found, your file must have scan data")
+  
+  scanSize <- afm_extract_parameter(afm_header, scan_size)
+  assert_that(is.numeric(scanSize), msg = "scan_size is not numeric, 
+                                          check that it is present in 
+                                          the header and that you correctly 
+                                          specified the name of the parameter")
+  sampsPerLine <- afm_extract_parameter(afm_header, samps_per_line)
+  assert_that(is.numeric(sampsPerLine), msg = "samps_per_line is not numeric, 
+                                          check that it is present in 
+                                          the header and that you correctly 
+                                          specified the name of the parameter")
+  afmLines <- afm_extract_parameter(afm_header, afm_lines)
+  assert_that(is.numeric(afmLines), msg = "afm_lines is not numeric, 
+                                          check that it is present in 
+                                          the header and that you correctly 
+                                          specified the name of the parameter")
+  scan_points <- afm_extract_scan_points(afm_data)
   
   if(maps == "all"){
     all_channels <- colnames(scan_points)
@@ -103,7 +138,7 @@ afm_read_bruker <- function(file, maps = "all", opt_params = list(), scan_size =
     names(afm_maps) <- map_names
   }
   
-  optional_params <- purrr::map(opt_params, ~extract_parameter(afm_header, .x))
+  optional_params <- purrr::map(opt_params, ~afm_extract_parameter(afm_header, .x))
   
   afm_scan(scan_points, scanSize, sampsPerLine, afmLines, maps = afm_maps, optional_params)
 }
@@ -115,6 +150,10 @@ two_um_scan <- afm_read_bruker("2um_1.txt")
 afm_text <- read_lines("500nm_1.txt")
 afm_header <- afm_text[str_detect(afm_text, "\\\\")]
 afm_data <- afm_text[((2*length(afm_header))+1):length(afm_text)]
+
+afm_text_bad <- read_lines("500nm_1_bad.txt")
+afm_header_bad <- afm_text_bad[str_detect(afm_text_bad, "\\\\")]
+afm_data_bad <- afm_text_bad[((2*length(afm_header_bad))+1):length(afm_text_bad)]
 
 scanSize1 <- extract_parameter(afm_header, "Scan Size")
 sampsPerLine1 <- extract_parameter(afm_header, "Samps/line")
