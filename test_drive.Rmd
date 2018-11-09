@@ -1,0 +1,236 @@
+---
+title: "afmr -- the beginning"
+author: "Will Chase"
+date: "November 8, 2018"
+output:
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: true
+    code_folding: hide
+    theme: flatly
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Analysis of AFM images in R
+
+###Why?
+
+1. Allows for batch processing
+2. Allows for greater control over output
+3. Allows for integration with other R tools
+
+###Currently available: 
+
+1. Read bruker scan files, compute matrices of any channel, extract parameters from header or add custom parameters
+2. Visualize 2D maps and apply basic image analysis tools
+3. Visualize 3D maps 
+
+###To do:
+1. Add more advanced visualization: 3D overlays and color schemes
+2. Add common image transformations: plane fit, flatten, clean, etc
+3. Add support for interactive analysis (measurement, line drawing + histogram, etc)
+
+
+#Test driving
+
+##Setup
+
+First load libraries and read functions
+```{r libraries, message = FALSE, warning = FALSE}
+#load packages (later afmr)
+library(tidyverse)
+library(rayshader)
+library(EBImage)
+library(assertthat)
+```
+```{r}
+#extract parameters from the header
+#parameter must be character vector that exactly matches the description in the header ie. "Tip Radius"
+#if no match is found in the header, the parameter value is returned directly
+#this allows users to store values that may not be in the header but are associated with the experiment
+#such as "cell number" "treatment" etc.
+afm_extract_parameter <- function(header = NULL, parameter = NULL){
+  parameter_regex <- paste0("\\\\", parameter, ":")
+  parameter_text <- header[str_detect(header, parameter_regex)][1]
+  if (is.na(parameter_text)) {
+    warning(paste(parameter, "was not found in the header, returning", parameter, "directly"))
+    return(parameter)
+  } else {
+  tryCatch({readr::parse_number(parameter_text)}, 
+           warning = function(w){str_extract(parameter_text, pattern = '(?<=: )(.*)(?=")')})
+  }
+}
+
+#reads the scan data into a dataframe
+afm_extract_scan_points <- function(data){
+  assert_that(is.character(data))
+  
+  afm_df <- data %>%
+    str_squish() %>%
+    as.tibble() 
+  
+  names <- unlist(strsplit(x = as.character(afm_df[1, ]), split = " "))
+  assert_that(is.character(names))
+  
+  afm_df %>%
+    slice(-1) %>%
+    {
+      tryCatch(
+        {tidyr::separate(., col = value, into = names, sep = " ", convert = TRUE)},
+        warning = function(w) {stop("The rows of your scan data had an unequal 
+                                    number of columns. Check that all lines of 
+                                    your scan data are complete.")}
+      )    
+    }
+}
+
+#formats a data channel as a matrix for visualization
+#provide channel argument as character vector that matches the colname in scan_points exactly
+afm_matrix <- function(data, samps_line, afm_lines, channel = NULL){
+  assert_that(!is.null(channel))
+  
+  data %>%
+    pull(channel) %>%
+    matrix(., ncol = samps_line, nrow = afm_lines, byrow = TRUE)
+}
+
+#takes required inputs (scan size, scan points, samps per line, lines)
+#also takes optional params and maps (image matrices)
+#formats as afm_scan object
+afm_scan <- function(scan_points = NULL, scanSize = NULL, sampsPerLine = NULL, afmLines = NULL, maps = list(), optional_params = list()){
+  assert_that(!is.null(scan_points), !is.null(scanSize), !is.null(sampsPerLine), !is.null(afmLines))
+  assert_that(is.numeric(scanSize), is.numeric(sampsPerLine), is.numeric(afmLines))
+  
+  if(is.tibble(scan_points) == FALSE & is.data.frame(scan_points) == FALSE) {
+    stop("scan_points must be a tibble or dataframe")
+  }
+  
+  data <- list(
+    params = list(scan_size = scanSize, samps_per_line = sampsPerLine, afm_lines = afmLines),
+    scan_data = scan_points,
+    opt_params = optional_params,
+    maps = maps
+  )
+  
+  class(data) <- "afm_scan"
+  return(data)
+} 
+
+#reads a bruker text file that has a header and scan data from any number of channels
+afm_read_bruker <- function(file = NULL, maps = "all", opt_params = list(), scan_size = "Scan Size", samps_per_line = "Samps/line", afm_lines = "Lines"){
+  assert_that(!is.null(file))
+  
+  afm_text <- read_lines(file)
+  afm_header <- afm_text[str_detect(afm_text, "\\\\")]
+  afm_data <- afm_text[((2*length(afm_header))+1):length(afm_text)]
+  
+  assert_that(length(afm_header) > 0, msg = "No header found, your file must have a header")
+  assert_that(length(afm_data) > 0, msg = "No scan data found, your file must have scan data")
+  
+  scanSize <- afm_extract_parameter(afm_header, scan_size)
+  assert_that(is.numeric(scanSize), msg = "scan_size is not numeric, 
+                                          check that it is present in 
+                                          the header and that you correctly 
+                                          specified the name of the parameter")
+  sampsPerLine <- afm_extract_parameter(afm_header, samps_per_line)
+  assert_that(is.numeric(sampsPerLine), msg = "samps_per_line is not numeric, 
+                                          check that it is present in 
+                                          the header and that you correctly 
+                                          specified the name of the parameter")
+  afmLines <- afm_extract_parameter(afm_header, afm_lines)
+  assert_that(is.numeric(afmLines), msg = "afm_lines is not numeric, 
+                                          check that it is present in 
+                                          the header and that you correctly 
+                                          specified the name of the parameter")
+  scan_points <- afm_extract_scan_points(afm_data)
+  
+  if(maps == "all"){
+    all_channels <- colnames(scan_points)
+    map_names <- paste(str_extract(all_channels, pattern = ".+?(?=\\()"), "matrix", sep = "_")
+    afm_maps <- map(.x = all_channels, ~afm_matrix(scan_points, sampsPerLine, afmLines, channel = .x))
+    names(afm_maps) <- map_names
+  } else{
+    all_channels <- colnames(scan_points)
+    select_channels <- maps[maps%in%all_channels]
+    map_names <- paste(str_extract(select_channels, pattern = ".+?(?=\\()"), "matrix", sep = "_")
+    afm_maps <- map(.x = select_channels, ~afm_matrix(scan_points, sampsPerLine, afmLines, channel = .x))
+    names(afm_maps) <- map_names
+  }
+  
+  optional_params <- purrr::map(opt_params, ~afm_extract_parameter(afm_header, .x))
+  
+  afm_scan(scan_points, scanSize, sampsPerLine, afmLines, maps = afm_maps, optional_params)
+}
+```
+
+Next we can read in some data using the `afm_read_bruker()` function. I'll load a 500nm image and a 2um image.
+```{r}
+half_um_scan <- afm_read_bruker("500nm_1.txt", maps = c("Height_Sensor(nm)", "Peak_Force_Error(nN)"), opt_params = list(scan_rate = "Scan Rate", cap_dir = "Capture direction", num = 4, cell = "cell1"))
+two_um_scan <- afm_read_bruker("2um_1.txt")
+```
+
+The structure of these files is a list with the various pieces organized for easy handling. 
+```{r}
+str(two_um_scan)
+```
+
+##Visualization
+
+First we can analyze some 2D peakforce images:
+```{r}
+nanoscope_colors2 <- c("#000000", "#000000", "#0A0000", "#140000", "#1E0000", "#280000", "#320000", "#3C0000", "#460000", "#500000", "#5A0400", "#641500", "#6E2300", "#783400", "#824300", "#8C5100", "#966100", "#A07102", "#AA801B", "#B49037", "#BE9F52", "#C8AD6C", "#D2BD87", "#DCCCA3", "#E6DCBF", "#F0ECDB", "#FAFAF5", "#FFFFFF", "#FFFFFF")
+
+nanoscope_palette <- colorRampPalette(nanoscope_colors2)
+pf_matrix <- two_um_scan$maps$Peak_Force_Error_matrix
+pf_scaled <- pf_matrix + abs(min(pf_matrix))
+pf_image <- Image(pf_scaled)
+pf_rot <- rotate(x = pf_image, -90)
+
+pf_nanoscope <- colormap(pf_rot, nanoscope_palette(256))
+pf_grey <- colormap(pf_rot, grey.colors(256))
+
+display(pf_nanoscope, method = "raster")
+display(pf_grey, method = "raster")
+```
+
+There's also some fancy stuff we can do like histogram equalization, gaussian blur, laplacian filtering
+
+```{r}
+eq_pf_nanoscope <- equalize(pf_nanoscope)
+display(eq_pf_nanoscope, method = "raster")
+
+fhi = matrix(1, nrow = 3, ncol = 3)
+fhi[1, 1] = -7
+img_fhi = filter2(pf_rot, fhi)
+EBImage::display(img_fhi, method = "raster")
+```
+
+You can also do all sorts of normal things like cropping, rotating, false coloring, thresholding, making gifs, adding overlays, enhancing contrast/brightness
+
+Of course, you have the raw data on hand, so statistical calculations are very easy. Here's some simple histograms for height and modulus channels. This is an area that can be expanded upon a lot. 
+
+```{r}
+graphics::hist(two_um_scan$scan_data$`Height_Sensor(nm)`, 20)
+graphics::hist(two_um_scan$scan_data$`DMTModulus(MPa)`, 20)
+```
+
+The original reason I started this was to enable exportable 3D visualization. Here I show how to use the rayshader package to make a 3D representation of the 500nm height scan. This 3D object can be colored differently, saved as a spinning gif, embedded online as an interactive object, converted directly to 3D printing format, and more! I'm currently working on adding overlays (ie. modulus coloring with transparency) to the 3D object. 
+
+```{r eval = FALSE}
+height_matrix <- half_um_scan$maps$Height_Sensor_matrix
+
+height_matrix %>%
+  sphere_shade(texture = "desert",progbar = FALSE) %>%
+  add_shadow(ray_shade(height_matrix,zscale=0.8,maxsearch = 300,progbar = FALSE),0.7) %>%
+  plot_3d(height_matrix, zscale=0.8,fov=0,theta=0,zoom=0.9,phi=45, windowsize = c(800,800), solid = TRUE)
+```
+
+<video width=100% controls>
+  <source src="out.mp4" type="video/mp4">
+</video>

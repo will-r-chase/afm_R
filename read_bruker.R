@@ -1,5 +1,5 @@
 library(tidyverse)
-
+library(assertthat)
 #####example of header parameters#####
 # "\Scan Size: 500 nm"
 # "\Samps/line: 512"
@@ -39,8 +39,6 @@ afm_extract_parameter <- function(header = NULL, parameter = NULL){
 }
 
 #reads the scan data into a dataframe
-#add later: automatic naming of columns
-#add later: safety to check that all lines are complete
 afm_extract_scan_points <- function(data){
   assert_that(is.character(data))
   
@@ -95,8 +93,6 @@ afm_scan <- function(scan_points = NULL, scanSize = NULL, sampsPerLine = NULL, a
   return(data)
 } 
 
-afm_scan(scan_points = scan_points1, scanSize = scanSize1, sampsPerLine = sampsPerLine1, afmLines = afmLines1)
-
 #reads a bruker text file that has a header and scan data from any number of channels
 afm_read_bruker <- function(file = NULL, maps = "all", opt_params = list(), scan_size = "Scan Size", samps_per_line = "Samps/line", afm_lines = "Lines"){
   assert_that(!is.null(file))
@@ -143,7 +139,7 @@ afm_read_bruker <- function(file = NULL, maps = "all", opt_params = list(), scan
   afm_scan(scan_points, scanSize, sampsPerLine, afmLines, maps = afm_maps, optional_params)
 }
 
-read_test<-afm_read_bruker("500nm_1.txt", c("Height_Sensor(nm)", "Peak_Force_Error(nN)"), list(scan_rate = "Scan Rate", cap_dir = "Capture direction", num = 4, cell = "cell1"))
+half_um_scan <- afm_read_bruker("500nm_1.txt", maps = c("Height_Sensor(nm)", "Peak_Force_Error(nN)"), opt_params = list(scan_rate = "Scan Rate", cap_dir = "Capture direction", num = 4, cell = "cell1"))
 two_um_scan <- afm_read_bruker("2um_1.txt")
 
 #### test
