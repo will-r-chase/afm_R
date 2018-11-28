@@ -14,32 +14,33 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
 ```
 
-#Analysis of AFM images in R
+# Analysis of AFM images in R
+This is a preview of the functionality of the afmr package I am currently developing. This package focuses on visualization and image analysis for atomic force microscopy (AFM) data. This tutorial utilizes my source code, but I have collected these functions as a package that is currently available on github (https://github.com/will-r-chase/afmr), but does not have all functions added yet. This document shows AFM data from the plant cell wall (collected by Will Chase). The plant cell wall is a fibrillar network, hence the images show the mesh-like texture of cellulose microfibrils that form this network. The code used in this document is hidden, but you can press the "code" buttons in the upper right to view the code for each section.
 
-###Why?
+## Why?
 
 1. Allows for batch processing
 2. Allows for greater control over output
 3. Allows for integration with other R tools
 
-###Currently available: 
+## Currently available: 
 
 1. Read bruker scan files, compute matrices of any channel, extract parameters from header or add custom parameters
 2. Visualize 2D maps and apply basic image analysis tools
 3. Visualize 3D maps 
 
-###To do:
+## To do:
 1. Add more advanced visualization: 3D overlays and color schemes
-2. Add common image transformations: plane fit, flatten, clean, etc
+2. Add common image transformations: plane fit, flatten, impute missing data, etc
 3. Add support for interactive analysis (measurement, line drawing + histogram, etc)
 
 
-#Test driving
+# Test driving
 
-##Setup
+## Setup
 
 First load libraries and read functions
 ```{r libraries, message = FALSE, warning = FALSE}
@@ -180,7 +181,7 @@ The structure of these files is a list with the various pieces organized for eas
 str(two_um_scan)
 ```
 
-##Visualization
+## Visualization
 
 First we can analyze some 2D peakforce images:
 ```{r}
